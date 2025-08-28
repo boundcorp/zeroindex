@@ -331,6 +331,7 @@ class KubernetesNodeManager:
         status = {
             'execution_client': self._get_deployment_status(node.execution_deployment_name),
             'consensus_client': self._get_deployment_status(node.consensus_deployment_name) if node.is_ethereum_l1 else None,
+            'storage': self._get_pvc_usage_status(node),
         }
         
         return status
@@ -366,3 +367,155 @@ class KubernetesNodeManager:
             if e.status == 404:
                 return {'error': 'Deployment not found'}
             raise
+    
+    def _get_pvc_usage_status(self, node: Node) -> Dict[str, Any]:
+        """Get PVC disk usage status for a node"""
+        storage_status = {}
+        
+        # Get execution client PVC status
+        if node.execution_pvc_name:
+            exec_usage = self._get_single_pvc_usage(node.execution_pvc_name)
+            if exec_usage:
+                storage_status['execution'] = exec_usage
+        
+        # Get consensus client PVC status (if L1 Ethereum)
+        if node.is_ethereum_l1 and node.consensus_pvc_name:
+            cons_usage = self._get_single_pvc_usage(node.consensus_pvc_name)
+            if cons_usage:
+                storage_status['consensus'] = cons_usage
+        
+        # Get shared JWT PVC status
+        jwt_pvc_name = f"{node.name}-jwt-shared"
+        jwt_usage = self._get_single_pvc_usage(jwt_pvc_name)
+        if jwt_usage:
+            storage_status['jwt_shared'] = jwt_usage
+        
+        return storage_status
+    
+    def _get_single_pvc_usage(self, pvc_name: str) -> Optional[Dict[str, Any]]:
+        """Get disk usage for a single PVC"""
+        try:
+            core_v1 = client.CoreV1Api(self.k8s_client)
+            
+            # Get PVC info
+            pvc = core_v1.read_namespaced_persistent_volume_claim(
+                name=pvc_name,
+                namespace=self.namespace
+            )
+            
+            # Get capacity from PVC spec
+            capacity_str = pvc.spec.resources.requests.get('storage', '0Gi')
+            capacity_bytes = self._parse_storage_size(capacity_str)
+            
+            # Try to get actual usage by checking if there's a pod using this PVC
+            usage_bytes = self._get_pvc_actual_usage(pvc_name)
+            
+            usage_percentage = (usage_bytes / capacity_bytes * 100) if capacity_bytes > 0 else 0
+            
+            return {
+                'pvc_name': pvc_name,
+                'capacity': capacity_str,
+                'capacity_bytes': capacity_bytes,
+                'used_bytes': usage_bytes,
+                'usage_percentage': round(usage_percentage, 1),
+                'status': pvc.status.phase if pvc.status else 'Unknown'
+            }
+            
+        except ApiException as e:
+            if e.status == 404:
+                return {'error': f'PVC {pvc_name} not found'}
+            return {'error': f'Failed to get PVC status: {str(e)}'}
+        except Exception as e:
+            return {'error': f'Error getting PVC usage: {str(e)}'}
+    
+    def _get_pvc_actual_usage(self, pvc_name: str) -> int:
+        """Get actual disk usage for a PVC by checking pod filesystem usage"""
+        try:
+            core_v1 = client.CoreV1Api(self.k8s_client)
+            
+            # Find pods using this PVC
+            pods = core_v1.list_namespaced_pod(namespace=self.namespace)
+            
+            for pod in pods.items:
+                if not pod.spec.volumes:
+                    continue
+                    
+                # Check if this pod uses our PVC
+                uses_pvc = False
+                mount_path = None
+                
+                for volume in pod.spec.volumes:
+                    if (volume.persistent_volume_claim and 
+                        volume.persistent_volume_claim.claim_name == pvc_name):
+                        uses_pvc = True
+                        # Find mount path from container volume mounts
+                        if pod.spec.containers:
+                            for container in pod.spec.containers:
+                                if container.volume_mounts:
+                                    for mount in container.volume_mounts:
+                                        if mount.name == volume.name:
+                                            mount_path = mount.mount_path
+                                            break
+                        break
+                
+                if uses_pvc and pod.status.phase == 'Running' and mount_path:
+                    # Try to get disk usage from the pod
+                    return self._exec_df_command(pod.metadata.name, mount_path)
+            
+            return 0  # No running pods or unable to determine usage
+            
+        except Exception:
+            return 0  # Fallback to 0 if we can't determine usage
+    
+    def _exec_df_command(self, pod_name: str, mount_path: str) -> int:
+        """Execute du command in pod to get disk usage"""
+        try:
+            from kubernetes.stream import stream
+            
+            core_v1 = client.CoreV1Api(self.k8s_client)
+            
+            # Use du command to get directory size
+            command = ['sh', '-c', f'du -sb {mount_path} 2>/dev/null | cut -f1 || echo 0']
+            
+            response = stream(
+                core_v1.connect_get_namespaced_pod_exec,
+                name=pod_name,
+                namespace=self.namespace,
+                command=command,
+                stderr=True, 
+                stdin=False,
+                stdout=True, 
+                tty=False
+            )
+            
+            # Parse output to get used bytes
+            output = response.strip()
+            
+            if output and output.isdigit():
+                return int(output)
+            
+            return 0
+            
+        except Exception as e:
+            logger.debug(f"Failed to get disk usage for {pod_name}:{mount_path}: {e}")
+            return 0  # Fallback if command execution fails
+    
+    def _parse_storage_size(self, size_str: str) -> int:
+        """Parse Kubernetes storage size string to bytes"""
+        size_str = size_str.strip().upper()
+        
+        if size_str.endswith('GI'):
+            return int(float(size_str[:-2]) * 1024 * 1024 * 1024)
+        elif size_str.endswith('G'):
+            return int(float(size_str[:-1]) * 1000 * 1000 * 1000)
+        elif size_str.endswith('MI'):
+            return int(float(size_str[:-2]) * 1024 * 1024)
+        elif size_str.endswith('M'):
+            return int(float(size_str[:-1]) * 1000 * 1000)
+        elif size_str.endswith('KI'):
+            return int(float(size_str[:-2]) * 1024)
+        elif size_str.endswith('K'):
+            return int(float(size_str[:-1]) * 1000)
+        else:
+            # Assume bytes
+            return int(float(size_str))

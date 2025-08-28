@@ -96,6 +96,7 @@ class Command(BaseCommand):
                 k8s_manager = KubernetesNodeManager(node.kube_credential)
                 k8s_status = k8s_manager.get_node_status(node)
                 self.show_k8s_status(k8s_status)
+                self.show_storage_status(k8s_status.get('storage', {}))
             except Exception as e:
                 self.stdout.write(f"K8s Status: {self.style.ERROR('Error: ' + str(e))}")
         
@@ -186,6 +187,36 @@ class Command(BaseCommand):
                 total = cons_status.get('replicas', 0)
                 self.stdout.write(f"  Consensus: {ready}/{total} replicas ready")
 
+    def show_storage_status(self, storage_status):
+        """Show PVC storage usage status"""
+        if not storage_status:
+            return
+            
+        self.stdout.write(f"\n{self.style.HTTP_INFO('Storage Status:')}")
+        
+        for storage_type, info in storage_status.items():
+            if 'error' in info:
+                self.stdout.write(f"  {storage_type.title()}: {self.style.ERROR(info['error'])}")
+                continue
+                
+            pvc_name = info.get('pvc_name', storage_type)
+            capacity = info.get('capacity', 'Unknown')
+            usage_pct = info.get('usage_percentage', 0)
+            used_bytes = info.get('used_bytes', 0)
+            status = info.get('status', 'Unknown')
+            
+            # Format used space in human readable format
+            used_human = self.format_bytes(used_bytes)
+            
+            # Color code usage percentage
+            usage_color = self.get_usage_color(usage_pct)
+            usage_display = usage_color(f"{usage_pct}%")
+            
+            self.stdout.write(
+                f"  {storage_type.title()}: {used_human} / {capacity} "
+                f"({usage_display}) - {pvc_name} [{status}]"
+            )
+
     def get_node_status_data(self, node):
         """Get node status data for JSON output"""
         data = {
@@ -215,9 +246,12 @@ class Command(BaseCommand):
         if node.kube_credential and node.kube_credential.is_active:
             try:
                 k8s_manager = KubernetesNodeManager(node.kube_credential)
-                data['kubernetes'] = k8s_manager.get_node_status(node)
+                k8s_status = k8s_manager.get_node_status(node)
+                data['kubernetes'] = k8s_status
+                data['storage'] = k8s_status.get('storage', {})
             except Exception as e:
                 data['kubernetes'] = {'error': str(e)}
+                data['storage'] = {'error': str(e)}
         
         return data
 
@@ -245,3 +279,25 @@ class Command(BaseCommand):
             return f"{td.seconds//60}m"
         else:
             return f"{td.seconds}s"
+
+    def format_bytes(self, bytes_value):
+        """Format bytes in human readable format"""
+        if bytes_value == 0:
+            return "0 B"
+        
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if bytes_value < 1024.0:
+                return f"{bytes_value:.1f} {unit}"
+            bytes_value /= 1024.0
+        return f"{bytes_value:.1f} PB"
+
+    def get_usage_color(self, usage_pct):
+        """Get color function based on usage percentage"""
+        if usage_pct >= 90:
+            return self.style.ERROR
+        elif usage_pct >= 75:
+            return self.style.WARNING
+        elif usage_pct >= 50:
+            return self.style.NOTICE
+        else:
+            return self.style.SUCCESS
