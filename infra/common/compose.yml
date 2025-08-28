@@ -1,0 +1,13 @@
+services:
+  zeroindex-django-dev:
+    build:
+      context: ../../
+      dockerfile: Dockerfile
+      target: dev
+    image: ghcr.io/boundcorp/zeroindex/dev:latest
+  zeroindex-django:
+    build:
+      context: ../../
+      dockerfile: Dockerfile
+      target: release-backend
+    image: ghcr.io/boundcorp/zeroindex/release-backend:latest
