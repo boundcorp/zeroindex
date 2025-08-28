@@ -74,6 +74,9 @@ INSTALLED_APPS = [
     "django_filters",
     "django_extensions",
     "zeroindex.apps.users",
+    "zeroindex.apps.chains",
+    "zeroindex.apps.nodes",
+    "zeroindex.apps.blocks",
 ]
 
 SITE_ROOT = PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))

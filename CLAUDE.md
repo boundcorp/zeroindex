@@ -1,0 +1,1 @@
+- remember how to pip install with uv

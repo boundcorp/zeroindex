@@ -1,0 +1,44 @@
+[
+    {
+        "model": "chains.chain",
+        "pk": 1,
+        "fields": {
+            "chain_id": 1,
+            "name": "Ethereum",
+            "symbol": "ETH",
+            "is_testnet": false,
+            "block_explorer_url": "https://etherscan.io",
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-01T00:00:00Z"
+        }
+    },
+    {
+        "model": "chains.chain",
+        "pk": 2,
+        "fields": {
+            "chain_id": 8453,
+            "name": "Base",
+            "symbol": "ETH",
+            "is_testnet": false,
+            "block_explorer_url": "https://basescan.org",
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-01T00:00:00Z"
+        }
+    },
+    {
+        "model": "chains.rpcprovider",
+        "pk": 1,
+        "fields": {
+            "chain": 2,
+            "rpc_url": "https://mainnet.base.org",
+            "enabled": true,
+            "priority": 100,
+            "rate_limit": null,
+            "is_healthy": true,
+            "last_health_check": null,
+            "response_time_ms": null,
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-01T00:00:00Z"
+        }
+    }
+]

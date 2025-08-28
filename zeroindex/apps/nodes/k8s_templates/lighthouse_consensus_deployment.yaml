@@ -1,0 +1,242 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ deployment_name }}
+  namespace: {{ namespace }}
+  labels:
+    app: {{ deployment_name }}
+    component: consensus-client
+    client: lighthouse
+    chain: {{ chain_name }}
+    node: {{ node_name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ deployment_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ deployment_name }}
+        component: consensus-client
+        client: lighthouse
+        chain: {{ chain_name }}
+        node: {{ node_name }}
+    spec:
+      containers:
+      - name: lighthouse-beacon
+        image: sigp/lighthouse:{{ version | default:"latest" }}
+        command:
+        - lighthouse
+        - bn
+        args:
+        {% for arg in extra_args %}
+        - {{ arg }}
+        {% endfor %}
+        - --network={% if chain_name == "Ethereum" %}mainnet{% else %}{{ chain_name | lower }}{% endif %}
+        - --datadir=/data
+        - --http
+        - --http-address=0.0.0.0
+        - --http-port=5052
+        - --http-allow-origin=*
+        - --metrics
+        - --metrics-address=0.0.0.0
+        - --metrics-port=5054
+        - --execution-endpoint=http://{{ execution_service }}:8551
+        - --execution-jwt=/jwt/jwt.hex
+        - --checkpoint-sync-url=https://mainnet-checkpoint-sync.attestant.io
+        - --disable-deposit-contract-sync
+        {% if node_type == 'validator' %}
+        - --suggested-fee-recipient={{ fee_recipient | default:"0x0000000000000000000000000000000000000000" }}
+        {% endif %}
+        ports:
+        - containerPort: 5052
+          name: http-api
+          protocol: TCP
+        - containerPort: 9000
+          name: p2p-tcp
+          protocol: TCP
+        - containerPort: 9000
+          name: p2p-udp
+          protocol: UDP
+        - containerPort: 5054
+          name: metrics
+          protocol: TCP
+        env:
+        - name: RUST_LOG
+          value: "info"
+        resources:
+          requests:
+            cpu: {{ resources.requests.cpu }}
+            memory: {{ resources.requests.memory }}
+          limits:
+            cpu: {{ resources.limits.cpu }}
+            memory: {{ resources.limits.memory }}
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: jwt-secret
+          mountPath: /jwt
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /eth/v1/node/health
+            port: 5052
+          initialDelaySeconds: 300
+          periodSeconds: 60
+          timeoutSeconds: 10
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /eth/v1/node/health
+            port: 5052
+          initialDelaySeconds: 180
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 10
+      initContainers:
+      - name: wait-for-execution
+        image: alpine:latest
+        command:
+        - sh
+        - -c
+        - |
+          apk add --no-cache netcat-openbsd
+          echo "Waiting for execution client to be ready..."
+          until nc -z {{ execution_service }} 8545; do
+            echo "Execution client not ready, waiting..."
+            sleep 10
+          done
+          echo "Execution client is ready!"
+      - name: setup-jwt
+        image: alpine:latest
+        command:
+        - sh
+        - -c
+        - |
+          apk add --no-cache openssl
+          if [ ! -f /jwt/jwt.hex ]; then
+            openssl rand -hex 32 > /jwt/jwt.hex
+          fi
+          echo "JWT setup complete"
+        volumeMounts:
+        - name: jwt-secret
+          mountPath: /jwt
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: {{ pvc_name }}
+      - name: jwt-secret
+        persistentVolumeClaim:
+          claimName: {{ node_name }}-jwt-shared
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ pvc_name }}
+  namespace: {{ namespace }}
+  labels:
+    app: {{ deployment_name }}
+    component: consensus-client
+    client: lighthouse
+    chain: {{ chain_name }}
+    node: {{ node_name }}
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ storage_size }}Gi
+  {% if storage_class %}
+  storageClassName: {{ storage_class }}
+  {% endif %}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ node_name }}-jwt-shared
+  namespace: {{ namespace }}
+  labels:
+    app: {{ node_name }}
+    component: jwt-shared
+    chain: {{ chain_name }}
+    node: {{ node_name }}
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+  {% if storage_class %}
+  storageClassName: {{ storage_class }}
+  {% endif %}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ deployment_name }}-service
+  namespace: {{ namespace }}
+  labels:
+    app: {{ deployment_name }}
+    component: consensus-client
+    client: lighthouse
+    chain: {{ chain_name }}
+    node: {{ node_name }}
+spec:
+  selector:
+    app: {{ deployment_name }}
+  ports:
+  - name: http-api
+    port: 5052
+    targetPort: 5052
+    protocol: TCP
+  - name: metrics
+    port: 5054
+    targetPort: 5054
+    protocol: TCP
+  type: ClusterIP
+---
+# Job to share JWT secret between execution and consensus clients
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ deployment_name }}-jwt-setup
+  namespace: {{ namespace }}
+  labels:
+    app: {{ deployment_name }}
+    component: jwt-setup
+spec:
+  template:
+    spec:
+      containers:
+      - name: setup-jwt
+        image: alpine:latest
+        command:
+        - sh
+        - -c
+        - |
+          apk add --no-cache curl
+          echo "Copying JWT from execution client..."
+          
+          # Wait for execution client JWT to be available
+          until [ -f /jwt-execution/jwt.hex ]; do
+            echo "Waiting for execution client JWT..."
+            sleep 5
+          done
+          
+          # Copy JWT to consensus location
+          cp /jwt-execution/jwt.hex /jwt-consensus/jwt.hex
+          chmod 644 /jwt-consensus/jwt.hex
+          echo "JWT copied successfully"
+        volumeMounts:
+        - name: jwt-execution
+          mountPath: /jwt-execution
+          readOnly: true
+        - name: jwt-consensus
+          mountPath: /jwt-consensus
+      restartPolicy: OnFailure
+      volumes:
+      - name: jwt-execution
+        emptyDir: {}
+      - name: jwt-consensus
+        emptyDir: {}

@@ -31,6 +31,8 @@ ruff = "*"
 pytest = "*"
 pytest-django = "*"  # Added pytest-django dependency
 hatchet-sdk = "*"
+kubernetes = "*"
+pyyaml = "*"
 
 [build-system]
 requires = ["poetry-core"]

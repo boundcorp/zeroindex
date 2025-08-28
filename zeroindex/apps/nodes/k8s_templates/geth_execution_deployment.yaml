@@ -1,0 +1,202 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ deployment_name }}
+  namespace: {{ namespace }}
+  labels:
+    app: {{ deployment_name }}
+    component: execution-client
+    client: geth
+    chain: {{ chain_name }}
+    node: {{ node_name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ deployment_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ deployment_name }}
+        component: execution-client
+        client: geth
+        chain: {{ chain_name }}
+        node: {{ node_name }}
+    spec:
+      containers:
+      - name: geth
+        image: ethereum/client-go:{{ version | default:"latest" }}
+        command:
+        - geth
+        args:
+        {% for arg in extra_args %}
+        - {{ arg }}
+        {% endfor %}
+        - --{% if chain_name == "Ethereum" %}mainnet{% else %}{{ chain_name | lower }}{% endif %}
+        - --datadir=/data
+        - --http
+        - --http.addr=0.0.0.0
+        - --http.port=8545
+        - --http.corsdomain=*
+        - --http.api=eth,net,web3,debug,txpool
+        - --ws
+        - --ws.addr=0.0.0.0
+        - --ws.port=8546
+        - --ws.api=eth,net,web3,debug,txpool
+        - --ws.origins=*
+        - --authrpc.addr=0.0.0.0
+        - --authrpc.port=8551
+        - --authrpc.jwtsecret=/jwt/jwt.hex
+        - --authrpc.vhosts=*
+        - --metrics
+        - --metrics.addr=0.0.0.0
+        - --metrics.port=6060
+        {% if node_type == 'archive' %}
+        - --syncmode=full
+        - --gcmode=archive
+        {% else %}
+        - --syncmode=snap
+        {% endif %}
+        ports:
+        - containerPort: 8545
+          name: http-rpc
+          protocol: TCP
+        - containerPort: 8546
+          name: ws-rpc
+          protocol: TCP
+        - containerPort: 8551
+          name: auth-rpc
+          protocol: TCP
+        - containerPort: 30303
+          name: discovery
+          protocol: TCP
+        - containerPort: 30303
+          name: discovery-udp
+          protocol: UDP
+        - containerPort: 6060
+          name: metrics
+          protocol: TCP
+        env:
+        - name: GETH_VERBOSITY
+          value: "3"
+        resources:
+          requests:
+            cpu: {{ resources.requests.cpu }}
+            memory: {{ resources.requests.memory }}
+          limits:
+            cpu: {{ resources.limits.cpu }}
+            memory: {{ resources.limits.memory }}
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: jwt-secret
+          mountPath: /jwt
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8545
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8545
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+      initContainers:
+      - name: generate-jwt
+        image: alpine:latest
+        command:
+        - sh
+        - -c
+        - |
+          apk add --no-cache openssl
+          if [ ! -f /jwt/jwt.hex ]; then
+            openssl rand -hex 32 > /jwt/jwt.hex
+          fi
+        volumeMounts:
+        - name: jwt-secret
+          mountPath: /jwt
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: {{ pvc_name }}
+      - name: jwt-secret
+        persistentVolumeClaim:
+          claimName: {{ node_name }}-jwt-shared
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ pvc_name }}
+  namespace: {{ namespace }}
+  labels:
+    app: {{ deployment_name }}
+    component: execution-client
+    client: geth
+    chain: {{ chain_name }}
+    node: {{ node_name }}
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ storage_size }}Gi
+  {% if storage_class %}
+  storageClassName: {{ storage_class }}
+  {% endif %}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ node_name }}-jwt-shared
+  namespace: {{ namespace }}
+  labels:
+    app: {{ node_name }}
+    component: jwt-shared
+    chain: {{ chain_name }}
+    node: {{ node_name }}
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+  {% if storage_class %}
+  storageClassName: {{ storage_class }}
+  {% endif %}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ deployment_name }}-service
+  namespace: {{ namespace }}
+  labels:
+    app: {{ deployment_name }}
+    component: execution-client
+    client: geth
+    chain: {{ chain_name }}
+    node: {{ node_name }}
+spec:
+  selector:
+    app: {{ deployment_name }}
+  ports:
+  - name: http-rpc
+    port: 8545
+    targetPort: 8545
+    protocol: TCP
+  - name: ws-rpc
+    port: 8546
+    targetPort: 8546
+    protocol: TCP
+  - name: auth-rpc
+    port: 8551
+    targetPort: 8551
+    protocol: TCP
+  - name: metrics
+    port: 6060
+    targetPort: 6060
+    protocol: TCP
+  type: ClusterIP
