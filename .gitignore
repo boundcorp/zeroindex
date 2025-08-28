@@ -4,6 +4,7 @@
 */conf/local.py
 .local_env
 .env.local
+.envlocal
 .vscode
 # IMPORTANT: only ignore /static (root folder)
 # do not ignore sub-static folders (like zeroindex/apps/samples/static/)

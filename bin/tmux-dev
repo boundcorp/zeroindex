@@ -1,0 +1,254 @@
+#!/bin/bash
+# tmux-dev - Helper for managing development tmux session and panes
+set -e
+
+SESSION_NAME="zeroindex"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+log() {
+    echo -e "${GREEN}[tmux-dev]${NC} $1"
+}
+
+warn() {
+    echo -e "${YELLOW}[tmux-dev]${NC} $1"
+}
+
+error() {
+    echo -e "${RED}[tmux-dev]${NC} $1"
+}
+
+# Check if session exists
+session_exists() {
+    tmux has-session -t "$SESSION_NAME" 2>/dev/null
+}
+
+# Create additional windows in existing session
+setup_windows() {
+    if ! session_exists; then
+        error "Session '$SESSION_NAME' does not exist. Please create it first."
+        exit 1
+    fi
+    
+    log "Setting up development windows in existing session '$SESSION_NAME'"
+    
+    # Create additional windows if they don't exist
+    for window in hatchet django worker logs; do
+        if ! tmux list-windows -t "$SESSION_NAME" -F "#{window_name}" | grep -q "^$window$"; then
+            log "Creating window: $window"
+            tmux new-window -t "$SESSION_NAME" -n "$window"
+        else
+            log "Window '$window' already exists"
+        fi
+    done
+    
+    log "Development windows ready"
+}
+
+# Attach to session
+attach_session() {
+    if session_exists; then
+        tmux attach-session -t "$SESSION_NAME"
+    else
+        error "Session '$SESSION_NAME' does not exist"
+        exit 1
+    fi
+}
+
+# Run command in specific pane
+run_in_pane() {
+    local window_name="$1"
+    local command="$2"
+    
+    if ! session_exists; then
+        error "Session '$SESSION_NAME' does not exist. Run 'tmux-dev create' first."
+        exit 1
+    fi
+    
+    log "Running in $window_name: $command"
+    tmux send-keys -t "$SESSION_NAME:$window_name" "$command" C-m
+}
+
+# Setup hatchet server
+setup_hatchet() {
+    if ! session_exists; then
+        error "Session '$SESSION_NAME' does not exist. Run 'tmux-dev create' first."
+        exit 1
+    fi
+    
+    log "Setting up Hatchet server in hatchet pane"
+    
+    # Check if hatchet directory exists
+    if [ ! -d "$HOME/hatchet-server" ]; then
+        warn "Hatchet server directory doesn't exist, creating..."
+        tmux send-keys -t "$SESSION_NAME:hatchet" "mkdir -p ~/hatchet-server && cd ~/hatchet-server" C-m
+        tmux send-keys -t "$SESSION_NAME:hatchet" "hatchet init" C-m
+        sleep 2
+    else
+        tmux send-keys -t "$SESSION_NAME:hatchet" "cd ~/hatchet-server" C-m
+    fi
+    
+    # Start hatchet server
+    log "Starting Hatchet server..."
+    tmux send-keys -t "$SESSION_NAME:hatchet" "hatchet server start" C-m
+}
+
+# Setup django dev server
+setup_django() {
+    if ! session_exists; then
+        error "Session '$SESSION_NAME' does not exist. Run 'tmux-dev create' first."
+        exit 1
+    fi
+    
+    log "Setting up Django dev server"
+    tmux send-keys -t "$SESSION_NAME:django" "source .venv/bin/activate" C-m
+    tmux send-keys -t "$SESSION_NAME:django" "./manage.py runserver" C-m
+}
+
+# Setup hatchet worker
+setup_worker() {
+    if ! session_exists; then
+        error "Session '$SESSION_NAME' does not exist. Run 'tmux-dev create' first."
+        exit 1
+    fi
+    
+    log "Setting up Hatchet worker"
+    tmux send-keys -t "$SESSION_NAME:worker" "source .venv/bin/activate" C-m
+    tmux send-keys -t "$SESSION_NAME:worker" "./manage.py hatchet_worker --worker-name zeroindex-dev" C-m
+}
+
+# Kill session
+kill_session() {
+    if session_exists; then
+        log "Killing session '$SESSION_NAME'"
+        tmux kill-session -t "$SESSION_NAME"
+    else
+        warn "Session '$SESSION_NAME' does not exist"
+    fi
+}
+
+# List sessions
+list_sessions() {
+    log "Active tmux sessions:"
+    tmux list-sessions 2>/dev/null || echo "No active sessions"
+}
+
+# Show status
+status() {
+    if session_exists; then
+        log "Session '$SESSION_NAME' is running"
+        echo
+        log "Windows:"
+        tmux list-windows -t "$SESSION_NAME" -F "  #{window_name}: #{window_active}"
+    else
+        warn "Session '$SESSION_NAME' is not running"
+    fi
+}
+
+# Show help
+show_help() {
+    cat << EOF
+tmux-dev - Development session management for zeroindex
+
+USAGE:
+    tmux-dev <command> [args]
+
+COMMANDS:
+    create              Create new dev session with all panes
+    attach              Attach to existing session
+    kill                Kill the dev session
+    status              Show session status
+    list                List all tmux sessions
+    
+    run <pane> <cmd>    Run command in specific pane
+    
+    setup-hatchet       Setup and start Hatchet server
+    setup-django        Start Django development server  
+    setup-worker        Start Hatchet worker
+    setup-all           Setup everything (hatchet, django, worker)
+
+EXAMPLES:
+    tmux-dev create                    # Create new session
+    tmux-dev setup-all                 # Start all services
+    tmux-dev run main "git status"     # Run git status in main pane
+    tmux-dev status                    # Check session status
+
+PANES:
+    main        Main development pane
+    hatchet     Hatchet server
+    django      Django development server
+    worker      Hatchet worker process
+    logs        General logs and monitoring
+EOF
+}
+
+# Setup all services
+setup_all() {
+    if ! session_exists; then
+        error "Session '$SESSION_NAME' does not exist. Please create it first or run 'tmux-dev setup' to add windows."
+        exit 1
+    fi
+    
+    # First setup windows if needed
+    setup_windows
+    
+    log "Setting up all development services..."
+    setup_hatchet
+    sleep 2
+    setup_django  
+    sleep 2
+    setup_worker
+    
+    log "All services started! Use 'tmux attach -t $SESSION_NAME' to connect"
+}
+
+# Main command dispatcher
+case "${1:-help}" in
+    "setup"|"setup-windows")
+        setup_windows
+        ;;
+    "attach")
+        attach_session
+        ;;
+    "kill")
+        kill_session
+        ;;
+    "status")
+        status
+        ;;
+    "list")
+        list_sessions
+        ;;
+    "run")
+        if [ $# -lt 3 ]; then
+            error "Usage: tmux-dev run <pane> <command>"
+            exit 1
+        fi
+        run_in_pane "$2" "$3"
+        ;;
+    "setup-hatchet")
+        setup_hatchet
+        ;;
+    "setup-django")
+        setup_django
+        ;;
+    "setup-worker")
+        setup_worker
+        ;;
+    "setup-all")
+        setup_all
+        ;;
+    "help"|"--help"|"-h")
+        show_help
+        ;;
+    *)
+        error "Unknown command: $1"
+        show_help
+        exit 1
+        ;;
+esac
