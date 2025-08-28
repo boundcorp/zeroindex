@@ -3,22 +3,12 @@ export PIPENV_VERBOSITY=-1
 # Dev utilities
 dev:
 	make deps
-	bin/dc up -d
+	@echo "Run 'source .venv/bin/activate' to activate the virtual environment"
+	@echo "Then run './manage.py runserver' to start the development server"
 
 deps:
 	make venv
-	make docker_build
 	make generate
-	make frontend_deps
-
-frontend_deps:
-	cd frontend && bun i
-
-docker_build:
-	bin/dc build
-
-docker_build_clean:
-	bin/dc build --no-cache
 
 generate:
 	echo "Nothing to generate yet ..."
@@ -42,6 +32,14 @@ precommit:
 
 freeze:
 	uv pip freeze | grep -vE '^zeroindex' > requirements.freeze.txt
+
+# Hatchet workflow management
+
+hatchet_status:
+	./manage.py hatchet_status
+
+hatchet_worker:
+	./manage.py hatchet_worker --worker-name zeroindex-worker
 
 # CI Pipeline & Tests
 

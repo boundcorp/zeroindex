@@ -28,7 +28,7 @@ ROOT_URLCONF = "zeroindex.settings.urls"
 
 
 
-DATABASE_HOST = os.environ.get("DATABASE_HOST", "psql")
+DATABASE_HOST = os.environ.get("DATABASE_HOST", "localhost")
 DATABASE_NAME = os.environ.get("DATABASE_NAME", "zeroindex")
 DATABASE_USER = os.environ.get("DATABASE_USER", "zeroindex")
 DATABASE_PORT = os.environ.get("DATABASE_PORT", "5432")
@@ -70,7 +70,6 @@ INSTALLED_APPS = [
     "django.contrib.sites",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "storages",
     "rest_framework",
     "django_filters",
     "django_extensions",
@@ -246,30 +245,8 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 ALLOWED_HOSTS = ["127.0.0.1", "localhost", "*"]
 
-credentials_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
-
-if os.path.exists(credentials_file):
-    from google.oauth2 import service_account
-    # GCP Bucket Configuration
-    DEFAULT_FILE_STORAGE = "storages.backends.gcloud.GoogleCloudStorage"
-    GS_BUCKET_NAME = os.environ.get("GS_BUCKET_NAME", "")
-    GS_PROJECT_ID = os.environ.get("GS_PROJECT_ID", "")
-    GS_CREDENTIALS = service_account.Credentials.from_service_account_file(credentials_file)
-else:
-    # Fallback to minio
-    MINIO_STORAGE_ENDPOINT = os.environ.get("MINIO_STORAGE_ENDPOINT", "minio:9000")
-    MINIO_STORAGE_ACCESS_KEY = os.environ.get("MINIO_STORAGE_ACCESS_KEY", "dev")
-    MINIO_STORAGE_SECRET_KEY = os.environ.get("MINIO_STORAGE_SECRET_KEY", "test1234")
-    MINIO_STORAGE_MEDIA_BUCKET_NAME = os.environ.get("MINIO_STORAGE_MEDIA_BUCKET_NAME",
-                                                     "zeroindex-assets")
-    MINIO_STORAGE_USE_HTTPS = env_variable_truthy("MINIO_STORAGE_USE_HTTPS")
-    MINIO_STORAGE_AUTO_CREATE_MEDIA_BUCKET = True
-    MINIO_STORAGE_MEDIA_URL = os.environ.get(
-        "MINIO_STORAGE_MEDIA_URL", f"http://localhost:9000/{MINIO_STORAGE_MEDIA_BUCKET_NAME}"
-    )
-    MINIO_STORAGE_MEDIA_USE_PRESIGNED = env_variable_truthy("MINIO_STORAGE_MEDIA_USE_PRESIGNED", "true")
-
-    DEFAULT_FILE_STORAGE = "minio_storage.storage.MinioMediaStorage"
+# Use local filesystem for file storage (simplified from cloud storage)
+DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
 
 if not DEBUG:
     # STAGING AND PROD
@@ -315,10 +292,16 @@ if "SENTRY_BACKEND_URL" in os.environ:
 
 THUMBNAIL_STORAGE = DEFAULT_FILE_STORAGE
 
+# Redis configuration for localhost development
 if "REDIS_URL" in os.environ:
     redis_url = urlparse(os.environ["REDIS_URL"])
-
     THUMBNAIL_REDIS_DB = "16"
     THUMBNAIL_REDIS_PASSWORD = redis_url.password or ""
     THUMBNAIL_REDIS_HOST = redis_url.hostname
     THUMBNAIL_REDIS_PORT = redis_url.port or 6379
+else:
+    # Default to localhost Redis
+    THUMBNAIL_REDIS_DB = "16"
+    THUMBNAIL_REDIS_PASSWORD = ""
+    THUMBNAIL_REDIS_HOST = "localhost"
+    THUMBNAIL_REDIS_PORT = 6379

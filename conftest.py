@@ -3,14 +3,12 @@ from dataclasses import dataclass
 from typing import Callable, Optional, Mapping, Any
 
 import django.conf
+from django.test import Client
 import pytest
-from graphql_jwt.shortcuts import get_token
 from pytest_django.lazy_django import skip_if_no_django
 
 from zeroindex.apps.users.factories import UserFactory
 from zeroindex.apps.users.models import User
-
-GRAPHQL_ENDPOINT = '/api/graphql/'
 
 
 @pytest.fixture
@@ -31,7 +29,7 @@ def test_user(db, strong_pass, client):
 @dataclass
 class ProjectFixture:
     settings: django.conf.Settings
-    client: django.test.client.Client
+    client: Client
     user: User
 
 
