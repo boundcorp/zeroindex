@@ -32,6 +32,9 @@ pytest = "*"
 pytest-django = "*"  # Added pytest-django dependency
 kubernetes = "*"
 pyyaml = "*"
+web3 = "*"
+boto3 = "*"
+click = "*"
 
 [build-system]
 requires = ["poetry-core"]

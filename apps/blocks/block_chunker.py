@@ -56,11 +56,11 @@ class BlockChunker:
                 'timestamp': block['timestamp'],
                 'miner': block['miner'],
                 'difficulty': block['difficulty'],
-                'totalDifficulty': block.get('totalDifficulty', 0),
+                'totalDifficulty': int(block.get('totalDifficulty', 0)),
                 'size': block['size'],
                 'gasUsed': block['gasUsed'],
                 'gasLimit': block['gasLimit'],
-                'baseFeePerGas': block.get('baseFeePerGas', 0),
+                'baseFeePerGas': int(block.get('baseFeePerGas', 0)),
                 'transactions': []
             }
             
@@ -82,8 +82,10 @@ class BlockChunker:
                     'value': str(tx['value']),
                     'gas': tx['gas'],
                     'gasPrice': str(tx.get('gasPrice', 0)),
+                    'maxFeePerGas': str(tx.get('maxFeePerGas', 0)) if tx.get('maxFeePerGas') else None,
+                    'maxPriorityFeePerGas': str(tx.get('maxPriorityFeePerGas', 0)) if tx.get('maxPriorityFeePerGas') else None,
                     'nonce': tx['nonce'],
-                    'input': tx['input'],
+                    'input': tx['input'].hex() if hasattr(tx['input'], 'hex') else tx['input'],
                     'receipt': receipts[i] if i < len(receipts) else None
                 }
                 
@@ -109,7 +111,7 @@ class BlockChunker:
                 
             # Get uncle/ommer blocks if any
             if block.get('uncles'):
-                block_data['uncles'] = [u.hex() for u in block['uncles']]
+                block_data['uncles'] = [u.hex() if hasattr(u, 'hex') else u for u in block['uncles']]
                 
             return block_data
             
