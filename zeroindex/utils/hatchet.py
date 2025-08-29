@@ -25,19 +25,26 @@ def get_hatchet_client() -> Hatchet:
     if _hatchet_client is None:
         # Self-hosted configuration
         server_url = os.getenv("HATCHET_SERVER_URL", "http://localhost:8080")
-        token = os.getenv("HATCHET_CLIENT_TOKEN")
+        token = os.getenv("HATCHET_CLIENT_TOKEN", "")
         
-        if not token:
-            raise ValueError("HATCHET_CLIENT_TOKEN environment variable is required")
-        
+        # For Hatchet Lite, we might not need a token
         # Create client config for self-hosted instance
-        config = ClientConfig(
-            server_url=server_url,
-            token=token,
-            # Additional self-hosted options
-            tls_config=None if server_url.startswith("http://") else None,
-            namespace=os.getenv("HATCHET_NAMESPACE", "default")
-        )
+        if token:
+            config = ClientConfig(
+                server_url=server_url,
+                token=token,
+                # Additional self-hosted options
+                tls_config=None if server_url.startswith("http://") else None,
+                namespace=os.getenv("HATCHET_NAMESPACE", "default")
+            )
+        else:
+            # Lite version without token
+            config = ClientConfig(
+                server_url=server_url,
+                # No token for lite version
+                tls_config=None,
+                namespace=os.getenv("HATCHET_NAMESPACE", "default")
+            )
         
         # Create Hatchet client with self-hosted configuration
         _hatchet_client = Hatchet(

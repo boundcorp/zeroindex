@@ -30,7 +30,6 @@ factory-boy = "*"
 ruff = "*"
 pytest = "*"
 pytest-django = "*"  # Added pytest-django dependency
-hatchet-sdk = "*"
 kubernetes = "*"
 pyyaml = "*"
 

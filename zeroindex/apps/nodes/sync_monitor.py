@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from django.utils import timezone
 from django.db import transaction
+from asgiref.sync import sync_to_async
 from .models import Node
 
 logger = logging.getLogger(__name__)
@@ -18,9 +19,9 @@ class NodeSyncMonitor:
     
     async def monitor_all_nodes(self):
         """Monitor sync status of all active nodes"""
-        nodes = Node.objects.filter(status__in=['syncing', 'running'])
+        nodes = await sync_to_async(list)(Node.objects.filter(status__in=['syncing', 'running']))
         
-        logger.info(f"Monitoring {nodes.count()} active nodes")
+        logger.info(f"Monitoring {len(nodes)} active nodes")
         
         tasks = []
         for node in nodes:
@@ -40,7 +41,10 @@ class NodeSyncMonitor:
             
             # Get consensus client sync status if it's an Ethereum L1 node
             cons_status = None
-            if node.is_ethereum_l1 and node.consensus_api_url:
+            is_eth_l1 = await sync_to_async(lambda: node.is_ethereum_l1)()
+            consensus_url = await sync_to_async(lambda: node.consensus_api_url)()
+            
+            if is_eth_l1 and consensus_url:
                 cons_status = await self.get_consensus_sync_status(node)
             
             # Update node status in database
@@ -53,17 +57,36 @@ class NodeSyncMonitor:
             return False
     
     async def get_execution_sync_status(self, node: Node) -> Dict[str, Any]:
-        """Get sync status from execution client RPC"""
-        if not node.execution_rpc_url:
+        """Get sync status from execution client metrics or RPC"""
+        rpc_url = await sync_to_async(lambda: node.execution_rpc_url)()
+        if not rpc_url:
             return {'error': 'No RPC URL configured'}
         
         try:
-            # Try eth_syncing first
-            sync_data = await self.rpc_call(node.execution_rpc_url, 'eth_syncing', [])
+            # First try to get sync status from metrics endpoint (works better with snap sync)
+            if ':6060' in rpc_url:
+                # Direct metrics endpoint
+                metrics_url = rpc_url + '/debug/metrics'
+            else:
+                # Convert RPC URL to metrics URL
+                metrics_url = rpc_url.replace(':8545', ':6060') + '/debug/metrics'
+            
+            try:
+                metrics_data = await self.http_get(metrics_url)
+                if metrics_data:
+                    return await self.parse_geth_metrics(metrics_data)
+            except Exception as metrics_error:
+                logger.debug(f"Metrics endpoint failed for {node.name}, trying RPC: {metrics_error}")
+                # If we're using the metrics port, don't try RPC fallback
+                if ':6060' in rpc_url:
+                    return {'error': f'Metrics endpoint failed: {metrics_error}'}
+            
+            # Fallback to RPC eth_syncing
+            sync_data = await self.rpc_call(rpc_url, 'eth_syncing', [])
             
             if sync_data is False:
                 # Node is fully synced
-                block_number = await self.rpc_call(node.execution_rpc_url, 'eth_blockNumber', [])
+                block_number = await self.rpc_call(rpc_url, 'eth_blockNumber', [])
                 return {
                     'is_syncing': False,
                     'sync_progress': 100.0,
@@ -98,12 +121,13 @@ class NodeSyncMonitor:
     
     async def get_consensus_sync_status(self, node: Node) -> Dict[str, Any]:
         """Get sync status from consensus client API"""
-        if not node.consensus_api_url:
+        consensus_url = await sync_to_async(lambda: node.consensus_api_url)()
+        if not consensus_url:
             return {'error': 'No consensus API URL configured'}
         
         try:
             # Get sync status
-            sync_url = f"{node.consensus_api_url}/eth/v1/node/syncing"
+            sync_url = f"{consensus_url}/eth/v1/node/syncing"
             response = await self.http_get(sync_url)
             
             if not response:
@@ -160,6 +184,60 @@ class NodeSyncMonitor:
         
         return await loop.run_in_executor(None, _request)
     
+    async def parse_geth_metrics(self, metrics: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse Geth metrics to determine sync progress"""
+        try:
+            # Get current block from metrics
+            current_block = metrics.get('chain/head/header', 0)
+            
+            # Estimate target block from download metrics or use a reasonable approximation
+            # For mainnet, we can estimate based on average block time (~12s) and current timestamp
+            import time
+            genesis_timestamp = 1438269973  # Ethereum mainnet genesis
+            current_timestamp = int(time.time())
+            estimated_blocks_since_genesis = (current_timestamp - genesis_timestamp) // 12
+            estimated_current_block = estimated_blocks_since_genesis
+            
+            # Check if we're actively downloading (indicates sync in progress)
+            bodies_downloading = metrics.get('eth/downloader/bodies/in.one-minute', 0) > 0
+            headers_downloading = metrics.get('eth/downloader/headers/in.one-minute', 0) > 0
+            receipts_downloading = metrics.get('eth/downloader/receipts/in.one-minute', 0) > 0
+            
+            # Check sync state metrics
+            is_actively_syncing = any([
+                bodies_downloading,
+                headers_downloading, 
+                receipts_downloading,
+                current_block < (estimated_current_block - 100)  # More than 100 blocks behind
+            ])
+            
+            if is_actively_syncing:
+                # Calculate sync progress
+                if estimated_current_block > 0:
+                    sync_progress = (current_block / estimated_current_block) * 100
+                    sync_progress = min(sync_progress, 99.9)  # Cap at 99.9% while syncing
+                else:
+                    sync_progress = 0.0
+                
+                return {
+                    'is_syncing': True,
+                    'sync_progress': sync_progress,
+                    'current_block': current_block,
+                    'highest_block': estimated_current_block,
+                }
+            else:
+                # Node appears to be synced
+                return {
+                    'is_syncing': False,
+                    'sync_progress': 100.0,
+                    'current_block': current_block,
+                    'highest_block': current_block,
+                }
+                
+        except Exception as e:
+            logger.error(f"Error parsing Geth metrics: {e}")
+            return {'error': f'Failed to parse metrics: {e}'}
+    
     async def http_post(self, url: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Make HTTP POST request"""
         loop = asyncio.get_event_loop()
@@ -179,6 +257,7 @@ class NodeSyncMonitor:
     async def update_node_status(self, node: Node, exec_status: Dict[str, Any], cons_status: Optional[Dict[str, Any]] = None):
         """Update node sync status in database"""
         
+        @sync_to_async
         def _update():
             with transaction.atomic():
                 # Refresh node from database
@@ -220,8 +299,7 @@ class NodeSyncMonitor:
                            f"cons={node.consensus_sync_progress:.1f}% if {node.is_ethereum_l1} else 'N/A', "
                            f"status={node.status}")
         
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, _update)
+        await _update()
 
 
 class SyncMonitorService:
@@ -254,6 +332,9 @@ class SyncMonitorService:
 # Convenience functions for management commands
 def monitor_node_sync(node_name: str) -> Dict[str, Any]:
     """Monitor sync status of a specific node (synchronous)"""
+    import threading
+    import concurrent.futures
+    
     try:
         node = Node.objects.get(name=node_name)
     except Node.DoesNotExist:
@@ -261,12 +342,18 @@ def monitor_node_sync(node_name: str) -> Dict[str, Any]:
     
     monitor = NodeSyncMonitor()
     
-    # Run the async monitoring in a new event loop
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        success = loop.run_until_complete(monitor.monitor_node(node))
+    # Run in a separate thread to avoid async context conflicts
+    def run_monitoring():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            return loop.run_until_complete(monitor.monitor_node(node))
+        finally:
+            loop.close()
+    
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(run_monitoring)
+        success = future.result()
         
         if success:
             node.refresh_from_db()
@@ -282,31 +369,40 @@ def monitor_node_sync(node_name: str) -> Dict[str, Any]:
             }
         else:
             return {'error': 'Failed to monitor node'}
-            
-    finally:
-        loop.close()
 
 
 def monitor_all_nodes() -> Dict[str, Any]:
     """Monitor all active nodes (synchronous)"""
+    import concurrent.futures
+    
     monitor = NodeSyncMonitor()
     
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    # Run in a separate thread to avoid async context conflicts
+    def run_monitoring():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(monitor.monitor_all_nodes())
+            return True
+        finally:
+            loop.close()
+    
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(run_monitoring)
+        success = future.result()
         
-        loop.run_until_complete(monitor.monitor_all_nodes())
-        
-        # Get summary
-        nodes = Node.objects.filter(status__in=['syncing', 'running'])
-        return {
-            'success': True,
-            'monitored_nodes': nodes.count(),
-            'summary': {
-                'syncing': nodes.filter(status='syncing').count(),
-                'running': nodes.filter(status='running').count(),
+        if success:
+            # Get summary
+            nodes = Node.objects.filter(status__in=['syncing', 'running'])
+            syncing_count = nodes.filter(status='syncing').count()
+            running_count = nodes.filter(status='running').count()
+            return {
+                'success': True,
+                'monitored_nodes': nodes.count(),
+                'summary': {
+                    'syncing': syncing_count,
+                    'running': running_count,
+                }
             }
-        }
-        
-    finally:
-        loop.close()
+        else:
+            return {'error': 'Failed to monitor nodes'}

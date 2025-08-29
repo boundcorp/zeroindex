@@ -1,1 +1,4 @@
 - remember how to pip install with uv
+- never write secrets into flatfiles, always install them into the cluster with kubectl create secret and then mount them onto the pod
+- this project has a nodes app for managing blockchain nodes in kubernetes, so anytime we are checking node status or fixing node problems, we should use available app tools, and ensure we are updating the node app code to reflect our fixes, not just updating the kube cluster or whatever. for example, if you need to change the deployments, you should update the templates, then run the app tools to re-install the templates. if those tools dont exist, we need them, because this project is designed to be a toolset for managing nodes, so feel free to create new application tooling to help solve these problems
+- to install new packages, add them in pyproject.toml then make deps

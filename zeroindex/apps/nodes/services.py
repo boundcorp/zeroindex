@@ -336,6 +336,10 @@ class KubernetesNodeManager:
         
         return status
     
+    def get_storage_status(self, node: Node) -> Dict[str, Any]:
+        """Get storage status for a node - alias for _get_pvc_usage_status"""
+        return self._get_pvc_usage_status(node)
+    
     def _get_deployment_status(self, deployment_name: str) -> Optional[Dict[str, Any]]:
         """Get status of a specific deployment"""
         if not deployment_name:
@@ -412,11 +416,16 @@ class KubernetesNodeManager:
             
             usage_percentage = (usage_bytes / capacity_bytes * 100) if capacity_bytes > 0 else 0
             
+            available_bytes = capacity_bytes - usage_bytes
+            
             return {
                 'pvc_name': pvc_name,
+                'namespace': self.namespace,
+                'storage_class': pvc.spec.storage_class_name or 'Unknown',
                 'capacity': capacity_str,
                 'capacity_bytes': capacity_bytes,
                 'used_bytes': usage_bytes,
+                'available_bytes': available_bytes,
                 'usage_percentage': round(usage_percentage, 1),
                 'status': pvc.status.phase if pvc.status else 'Unknown'
             }
@@ -504,7 +513,11 @@ class KubernetesNodeManager:
         """Parse Kubernetes storage size string to bytes"""
         size_str = size_str.strip().upper()
         
-        if size_str.endswith('GI'):
+        if size_str.endswith('TI'):
+            return int(float(size_str[:-2]) * 1024 * 1024 * 1024 * 1024)
+        elif size_str.endswith('T'):
+            return int(float(size_str[:-1]) * 1000 * 1000 * 1000 * 1000)
+        elif size_str.endswith('GI'):
             return int(float(size_str[:-2]) * 1024 * 1024 * 1024)
         elif size_str.endswith('G'):
             return int(float(size_str[:-1]) * 1000 * 1000 * 1000)

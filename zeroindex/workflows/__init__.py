@@ -7,3 +7,4 @@ when the worker starts.
 
 # Import all workflow modules here
 from .example_workflows import *  # noqa
+from .sync_monitoring import *  # noqa

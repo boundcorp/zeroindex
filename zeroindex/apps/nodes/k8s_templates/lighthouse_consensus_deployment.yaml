@@ -46,6 +46,10 @@ spec:
         - --execution-jwt=/jwt/jwt.hex
         - --checkpoint-sync-url=https://mainnet-checkpoint-sync.attestant.io
         - --disable-deposit-contract-sync
+        - --blob-prune-margin-epochs=8192
+        - --prune-blobs=true
+        - --beacon-processor-max-workers=8
+        - --beacon-processor-reprocess-queue-len=16384
         {% if node_type == 'validator' %}
         - --suggested-fee-recipient={{ fee_recipient | default:"0x0000000000000000000000000000000000000000" }}
         {% endif %}
@@ -64,7 +68,7 @@ spec:
           protocol: TCP
         env:
         - name: RUST_LOG
-          value: "info"
+          value: "warn,lighthouse=info,beacon_chain=info,sync=info"
         resources:
           requests:
             cpu: {{ resources.requests.cpu }}
@@ -82,18 +86,19 @@ spec:
           httpGet:
             path: /eth/v1/node/health
             port: 5052
-          initialDelaySeconds: 300
-          periodSeconds: 60
-          timeoutSeconds: 10
-          failureThreshold: 5
+          initialDelaySeconds: 600
+          periodSeconds: 120
+          timeoutSeconds: 30
+          failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /eth/v1/node/health
+            path: /eth/v1/node/syncing
             port: 5052
-          initialDelaySeconds: 180
-          periodSeconds: 30
-          timeoutSeconds: 10
-          failureThreshold: 10
+          initialDelaySeconds: 300
+          periodSeconds: 60
+          timeoutSeconds: 30
+          failureThreshold: 5
+          successThreshold: 1
       initContainers:
       - name: wait-for-execution
         image: alpine:latest
@@ -101,12 +106,21 @@ spec:
         - sh
         - -c
         - |
-          apk add --no-cache netcat-openbsd
+          apk add --no-cache netcat-openbsd curl
           echo "Waiting for execution client to be ready..."
+          
+          # First check if execution client is accepting connections
           until nc -z {{ execution_service }} 8545; do
-            echo "Execution client not ready, waiting..."
+            echo "Execution client not accepting connections, waiting..."
             sleep 10
           done
+          
+          # Then check if the Engine API port is ready
+          until nc -z {{ execution_service }} 8551; do
+            echo "Execution client Engine API not ready, waiting..."
+            sleep 10
+          done
+          
           echo "Execution client is ready!"
       - name: setup-jwt
         image: alpine:latest
