@@ -8,6 +8,21 @@ class Chain(models.Model):
     symbol = models.CharField(max_length=10, default='ETH')
     is_testnet = models.BooleanField(default=False)
     block_explorer_url = models.URLField(blank=True, null=True)
+    
+    # Block chunking configuration
+    chunk_duration_days = models.IntegerField(
+        default=1, 
+        help_text="Duration of each chunk in days (default: 1 day)"
+    )
+    estimated_blocks_per_day = models.IntegerField(
+        default=7200,
+        help_text="Estimated blocks produced per day (Ethereum: ~7200 blocks/day)"
+    )
+    average_block_time_seconds = models.FloatField(
+        default=12.0,
+        help_text="Average time between blocks in seconds (Ethereum: ~12 seconds)"
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
