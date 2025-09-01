@@ -32,6 +32,8 @@ pytest = "*"
 pytest-django = "*"  # Added pytest-django dependency
 kubernetes = "*"
 pyyaml = "*"
+web3 = "^7.6.0"  # For blockchain RPC interactions
+pytest-cov = "*"  # For test coverage reporting
 
 [build-system]
 requires = ["poetry-core"]
