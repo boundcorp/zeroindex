@@ -72,6 +72,13 @@ def to_json_serializable(obj):
 - Database credentials from Kubernetes secrets
 - ArrayField not compatible with SQLite (use PostgreSQL for development)
 
+### CRITICAL: Blockchain Data Protection
+- **NEVER delete blockchain node PVCs without explicit user permission**
+- Ethereum full sync takes DAYS/WEEKS - sync data is irreplaceable
+- Always check for existing data volumes before making changes
+- If PVC issues occur, investigate and ask user before any destructive actions
+- Backup/migration strategies must be discussed with user first
+
 ### Common Issues & Solutions
 1. **JWT Setup Pod Loop**: EmptyDir volumes don't share between pods
    - Solution: Delete unnecessary JWT setup jobs if Engine API already working

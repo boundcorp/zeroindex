@@ -153,6 +153,8 @@ class KubernetesNodeManager:
             'storage_class': node.storage_class,
             'resources': node.get_default_execution_resources(),
             'extra_args': node.extra_args,
+            'node_selector': node.get_execution_node_selector_dict(),
+            'node_affinity': node.get_execution_node_affinity(),
         }
     
     def _prepare_consensus_context(self, node: Node) -> Dict[str, Any]:
@@ -180,6 +182,8 @@ class KubernetesNodeManager:
             'extra_args': node.extra_args,
             'execution_service': execution_service,
             'fee_recipient': getattr(settings, 'ETHEREUM_FEE_RECIPIENT', None),
+            'node_selector': node.get_consensus_node_selector_dict(),
+            'node_affinity': node.get_consensus_node_affinity(),
         }
     
     def _render_template(self, template_path: Path, context: Dict[str, Any]) -> str:
