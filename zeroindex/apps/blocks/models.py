@@ -247,10 +247,26 @@ class Chunk(models.Model):
             import json
             import gzip
             
-            # Get RPC URL from chain
-            w3 = Web3(Web3.HTTPProvider(self.chain.rpc_url))
+            # Get RPC URL from our own nodes
+            from zeroindex.apps.nodes.models import Node
+            
+            # Find a running node for this chain
+            node = Node.objects.filter(
+                chain=self.chain,
+                status__in=['running', 'syncing'],
+                execution_rpc_url__isnull=False
+            ).first()
+            
+            if not node:
+                repair_log.error_message = "No available node found for this chain"
+                repair_log.save()
+                self.status = 'failed'
+                self.save()
+                return repair_log
+            
+            w3 = Web3(Web3.HTTPProvider(node.execution_rpc_url))
             if not w3.is_connected():
-                repair_log.error_message = "Cannot connect to RPC"
+                repair_log.error_message = f"Cannot connect to node RPC: {node.execution_rpc_url}"
                 repair_log.save()
                 self.status = 'failed'
                 self.save()

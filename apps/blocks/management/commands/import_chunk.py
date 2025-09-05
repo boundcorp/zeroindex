@@ -1,6 +1,6 @@
 import json
 import gzip
-from datetime import datetime, date
+from datetime import datetime
 from django.core.management.base import BaseCommand
 from zeroindex.apps.blocks.models import Chunk
 from zeroindex.apps.chains.models import Chain
@@ -11,16 +11,16 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('file_path', type=str, help='Path to the chunk file')
-        parser.add_argument('--chain-id', type=int, default=1, help='Chain ID (default: 1 for Ethereum mainnet)')
+        parser.add_argument('--chain-symbol', type=str, default='ETH', help='Chain symbol')
 
     def handle(self, *args, **options):
         file_path = options['file_path']
-        chain_id = options['chain_id']
+        chain_symbol = options['chain_symbol']
         
         try:
-            chain = Chain.objects.get(chain_id=chain_id)
+            chain = Chain.objects.get(symbol=chain_symbol)
         except Chain.DoesNotExist:
-            self.stdout.write(self.style.ERROR(f'Chain with ID {chain_id} not found'))
+            self.stdout.write(self.style.ERROR(f'Chain {chain_symbol} not found'))
             return
 
         self.stdout.write(f'Loading chunk from {file_path}...')
@@ -44,24 +44,20 @@ class Command(BaseCommand):
             if block_num not in existing_block_numbers
         ]
         
-        # Determine chunk date from filename
-        chunk_date = date(2025, 8, 27)  # From filename ethereum_chunk_2025-08-27_full.json.gz
-        status = 'complete' if completeness == 100 else 'incomplete'
-        
         chunk, created = Chunk.objects.update_or_create(
             chain=chain,
             start_block=start_block,
             end_block=end_block,
             defaults={
                 'file_path': file_path,
-                'chunk_date': chunk_date,
-                'status': status,
                 'completeness_percentage': completeness,
                 'missing_blocks': missing_blocks,
                 'total_blocks': actual_blocks,
                 'total_transactions': sum(int(block.get('transaction_count', 0)) for block in blocks),
                 'file_size_bytes': chunk_data.get('metadata', {}).get('compressed_size_mb', 0) * 1024 * 1024,
                 'compression_ratio': chunk_data.get('metadata', {}).get('compression_ratio', 1.0),
+                'created_at': datetime.now(),
+                'updated_at': datetime.now(),
             }
         )
         

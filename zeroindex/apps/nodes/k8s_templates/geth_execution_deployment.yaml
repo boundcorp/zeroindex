@@ -23,6 +23,29 @@ spec:
         chain: {{ chain_name }}
         node: {{ node_name }}
     spec:
+      {% if node_affinity %}
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          {% for preference in node_affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution %}
+          - weight: {{ preference.weight }}
+            preference:
+              matchExpressions:
+              {% for expression in preference.preference.matchExpressions %}
+              - key: {{ expression.key }}
+                operator: {{ expression.operator }}
+                values:
+                {% for value in expression.values %}
+                - "{{ value }}"
+                {% endfor %}
+              {% endfor %}
+          {% endfor %}
+      {% elif node_selector %}
+      nodeSelector:
+        {% for key, value in node_selector.items %}
+        {{ key }}: "{{ value }}"
+        {% endfor %}
+      {% endif %}
       containers:
       - name: geth
         image: ethereum/client-go:{{ version | default:"latest" }}

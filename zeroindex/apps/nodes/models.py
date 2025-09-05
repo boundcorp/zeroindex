@@ -110,6 +110,18 @@ class Node(models.Model):
         help_text="Kubernetes storage class for PVCs (e.g., iota-slush)"
     )
     
+    # Node targeting for Kubernetes scheduling
+    execution_node_selector = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Comma-separated node names to target for execution client (e.g., vega,nova,iota)"
+    )
+    consensus_node_selector = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Comma-separated node names to target for consensus client (e.g., vega,nova,iota)"
+    )
+    
     # Deprecated fields for backward compatibility
     deployment_name = models.CharField(max_length=255, blank=True, help_text="Deprecated: Use execution_deployment_name")
     pvc_name = models.CharField(max_length=255, blank=True, help_text="Deprecated: Use execution_pvc_name")
@@ -246,6 +258,100 @@ class Node(models.Model):
     def get_default_resource_limits(self):
         """Deprecated: Use get_default_execution_resources instead"""
         return self.get_default_execution_resources()['limits']
+    
+    def get_execution_node_selector_dict(self):
+        """Convert execution_node_selector to Kubernetes nodeSelector dict"""
+        if not self.execution_node_selector:
+            return {}
+        
+        # Parse comma-separated node names into nodeSelector format
+        node_names = [name.strip() for name in self.execution_node_selector.split(',') if name.strip()]
+        if not node_names:
+            return {}
+        
+        # For multiple nodes, use node affinity with preferredDuringSchedulingIgnoredDuringExecution
+        return {'kubernetes.io/hostname': node_names[0]}  # Simple approach: use first node
+    
+    def get_consensus_node_selector_dict(self):
+        """Convert consensus_node_selector to Kubernetes nodeSelector dict"""
+        if not self.consensus_node_selector:
+            return {}
+        
+        # Parse comma-separated node names into nodeSelector format
+        node_names = [name.strip() for name in self.consensus_node_selector.split(',') if name.strip()]
+        if not node_names:
+            return {}
+        
+        # For multiple nodes, use node affinity with preferredDuringSchedulingIgnoredDuringExecution
+        return {'kubernetes.io/hostname': node_names[0]}  # Simple approach: use first node
+    
+    def get_execution_node_affinity(self):
+        """Get node affinity configuration for execution client with multiple node support"""
+        if not self.execution_node_selector:
+            return None
+        
+        node_names = [name.strip() for name in self.execution_node_selector.split(',') if name.strip()]
+        if not node_names:
+            return None
+        
+        # Define node preferences: iota=100, nova=90, vega=80, others start at 70 and decrease
+        node_weights = {'iota': 100, 'nova': 90, 'vega': 80}
+        
+        preferences = []
+        for i, node_name in enumerate(node_names[:10]):  # Limit to 10 nodes
+            weight = node_weights.get(node_name.lower(), max(70 - (i * 10), 10))
+            preferences.append({
+                'weight': weight,
+                'preference': {
+                    'matchExpressions': [
+                        {
+                            'key': 'kubernetes.io/hostname',
+                            'operator': 'In',
+                            'values': [node_name]
+                        }
+                    ]
+                }
+            })
+        
+        return {
+            'nodeAffinity': {
+                'preferredDuringSchedulingIgnoredDuringExecution': preferences
+            }
+        }
+    
+    def get_consensus_node_affinity(self):
+        """Get node affinity configuration for consensus client with multiple node support"""
+        if not self.consensus_node_selector:
+            return None
+        
+        node_names = [name.strip() for name in self.consensus_node_selector.split(',') if name.strip()]
+        if not node_names:
+            return None
+        
+        # Define node preferences: iota=100, nova=90, vega=80, others start at 70 and decrease
+        node_weights = {'iota': 100, 'nova': 90, 'vega': 80}
+        
+        preferences = []
+        for i, node_name in enumerate(node_names[:10]):  # Limit to 10 nodes
+            weight = node_weights.get(node_name.lower(), max(70 - (i * 10), 10))
+            preferences.append({
+                'weight': weight,
+                'preference': {
+                    'matchExpressions': [
+                        {
+                            'key': 'kubernetes.io/hostname',
+                            'operator': 'In',
+                            'values': [node_name]
+                        }
+                    ]
+                }
+            })
+        
+        return {
+            'nodeAffinity': {
+                'preferredDuringSchedulingIgnoredDuringExecution': preferences
+            }
+        }
 
 
 class SyncStatusHistory(models.Model):

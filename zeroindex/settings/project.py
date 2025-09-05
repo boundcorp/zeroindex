@@ -308,3 +308,19 @@ else:
     THUMBNAIL_REDIS_PASSWORD = ""
     THUMBNAIL_REDIS_HOST = "localhost"
     THUMBNAIL_REDIS_PORT = 6379
+
+# AWS S3 Configuration
+AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID', '')
+AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY', '')
+AWS_S3_REGION_NAME = os.environ.get('AWS_DEFAULT_REGION', 'us-east-1')
+AWS_S3_BUCKET_DEV = os.environ.get('AWS_S3_BUCKET_DEV', 'zeroindex-dev-lwb')
+AWS_S3_BUCKET_TEST = os.environ.get('AWS_S3_BUCKET_TEST', 'zeroindex-test-lwb')
+AWS_S3_BUCKET_PROD = os.environ.get('AWS_S3_BUCKET_PROD', 'zeroindex-prod-lwb')
+
+# Select bucket based on environment
+if ENVIRONMENT == Environments.PRODUCTION:
+    AWS_S3_BUCKET_NAME = AWS_S3_BUCKET_PROD
+elif ENVIRONMENT == 'staging':
+    AWS_S3_BUCKET_NAME = AWS_S3_BUCKET_TEST
+else:
+    AWS_S3_BUCKET_NAME = AWS_S3_BUCKET_DEV
