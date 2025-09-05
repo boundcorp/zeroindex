@@ -25,3 +25,4 @@ coverage.xml
 .settings
 .venv
 data/chunks/*.json.gz
+data/test_chunks/
