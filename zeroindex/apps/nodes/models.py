@@ -106,8 +106,8 @@ class Node(models.Model):
     storage_class = models.CharField(
         max_length=100, 
         blank=True, 
-        default="iota-slush",
-        help_text="Kubernetes storage class for PVCs (e.g., iota-slush)"
+        default="nfs-iota-hdd-slush",
+        help_text="Kubernetes storage class for PVCs (e.g., nfs-iota-hdd-slush for HOME cluster)"
     )
     
     # Node targeting for Kubernetes scheduling
@@ -246,9 +246,10 @@ class Node(models.Model):
                 'limits': {'cpu': '4', 'memory': '12Gi'}
             }
         else:
+            # Increased from 8Gi to 12Gi to prevent OOM during sync
             return {
-                'requests': {'cpu': '1', 'memory': '4Gi'},
-                'limits': {'cpu': '2', 'memory': '8Gi'}
+                'requests': {'cpu': '2', 'memory': '6Gi'},
+                'limits': {'cpu': '4', 'memory': '12Gi'}
             }
 
     def get_default_resource_requests(self):
