@@ -92,3 +92,53 @@ def to_json_serializable(obj):
 2. Create chunks for historical data processing
 3. Verify 100% data completeness before processing
 4. Use management commands for bulk operations
+
+### Production Ethereum Node Deployment
+
+#### Initial Setup
+```bash
+# Set up HOME cluster credentials
+python manage.py setup_home_cluster --namespace devbox
+
+# Create and start a node
+python manage.py create_node eth-mainnet-01 --start
+```
+
+#### Resource Requirements (CRITICAL)
+**Execution Client (Geth):**
+- Memory: 16Gi limit, 8Gi request
+- CPU: 4 cores limit, 2 cores request
+- Storage: 2TB minimum (8TB recommended for growth)
+
+**Consensus Client (Lighthouse):**
+- Memory: **12Gi limit, 6Gi request** (8Gi causes OOM during sync)
+- CPU: 4 cores limit, 2 cores request  
+- Storage: 200GB minimum
+
+#### Node Selection
+- **Preferred nodes**: vega, nova (have working NFS CSI drivers)
+- **Avoid**: enterprise, ziti (resource constrained, cause pod failures)
+- Use `kubernetes.io/hostname` selector for explicit placement
+
+#### Storage Classes
+- HOME cluster: `nfs-iota-hdd-slush` (NFS-based, good for blockchain data)
+- Avoid `local-path` for production (node-specific, not portable)
+
+#### Common Issues & Fixes
+1. **Consensus OOM kills (exit code 137)**
+   - Increase memory limit to 12Gi minimum
+   - Watch for "Database write failed" errors in logs
+
+2. **Pod stuck in Init phase**
+   - Check PVC mounting issues
+   - Verify NFS CSI driver is running on target node
+   - May need to restart k3s-agent on problematic nodes
+
+3. **Database lock errors**
+   - Scale deployment to 0, then back to 1
+   - Ensures clean shutdown and lock release
+
+4. **Nova node issues**
+   - New nodes may have Cilium/CSI initialization problems
+   - SSH to node and restart k3s-agent if needed
+   - Check for "services have not yet been read" errors
