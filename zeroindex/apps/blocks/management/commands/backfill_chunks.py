@@ -136,7 +136,9 @@ class Command(BaseCommand):
         # Check if we're still syncing
         sync_info = self.w3.eth.syncing
         if sync_info:
-            self.stdout.write(f'⚠️  Node is syncing: {sync_info[\"currentBlock\"]:,}/{sync_info[\"highestBlock\"]:,}')
+            current = sync_info.get('currentBlock', 0)
+            highest = sync_info.get('highestBlock', 0)
+            self.stdout.write(f'⚠️  Node is syncing: {current:,}/{highest:,}')
         
         # Estimate blocks per day (Ethereum averages ~7200 blocks/day)
         self.blocks_per_day = 7200
@@ -167,9 +169,13 @@ class Command(BaseCommand):
         
         self.stdout.write(f'📋 Calculated ranges for {len(self.day_ranges)} days:')
         for day_range in self.day_ranges:
+            date_str = day_range.get('date', 'unknown')
+            start_block = day_range.get('start_block', 0)
+            end_block = day_range.get('end_block', 0)
+            expected_blocks = day_range.get('expected_blocks', 0)
             self.stdout.write(
-                f'  {day_range[\"date\"]}: blocks {day_range[\"start_block\"]:,} - {day_range[\"end_block\"]:,} '
-                f'({day_range[\"expected_blocks\"]:,} blocks)'
+                f'  {date_str}: blocks {start_block:,} - {end_block:,} '
+                f'({expected_blocks:,} blocks)'
             )
 
     def validate_existing_chunks(self):

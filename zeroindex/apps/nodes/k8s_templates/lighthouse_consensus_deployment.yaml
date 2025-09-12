@@ -110,17 +110,17 @@ spec:
             path: /eth/v1/node/health
             port: 5052
           initialDelaySeconds: 600
-          periodSeconds: 120
-          timeoutSeconds: 30
-          failureThreshold: 3
+          periodSeconds: 180
+          timeoutSeconds: 90
+          failureThreshold: 5
         readinessProbe:
           httpGet:
             path: /eth/v1/node/syncing
             port: 5052
           initialDelaySeconds: 300
-          periodSeconds: 60
-          timeoutSeconds: 30
-          failureThreshold: 5
+          periodSeconds: 90
+          timeoutSeconds: 60
+          failureThreshold: 8
           successThreshold: 1
       initContainers:
       - name: wait-for-execution

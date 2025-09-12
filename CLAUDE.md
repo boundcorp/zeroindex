@@ -79,6 +79,39 @@ def to_json_serializable(obj):
 - If PVC issues occur, investigate and ask user before any destructive actions
 - Backup/migration strategies must be discussed with user first
 
+### Node Access and Querying
+**RPC Endpoints:**
+- **Execution RPC**: `kubectl port-forward -n devbox service/eth-mainnet-01-execution-service 8545:8545`
+- **Consensus API**: `kubectl port-forward -n devbox service/eth-mainnet-01-consensus-service 5052:5052`
+
+**Important Notes:**
+- **External RPC only works when fully synced** - Geth won't serve external RPC until 0 seconds behind
+- **Internal RPC always works** - Can query directly inside pod even during sync
+- **Historical data available** - Once synced, can query any historical block for chunking
+
+**Testing Node Status:**
+```bash
+# Check if external RPC is ready
+curl -s -X POST -H "Content-Type: application/json" \
+  --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+  http://localhost:8545
+
+# Check sync status (returns false when fully synced)
+curl -s -X POST -H "Content-Type: application/json" \
+  --data '{"jsonrpc":"2.0","method":"eth_syncing","params":[],"id":1}' \
+  http://localhost:8545
+
+# Get historical block (for chunking)
+curl -s -X POST -H "Content-Type: application/json" \
+  --data '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["0x1643000",true],"id":1}' \
+  http://localhost:8545
+```
+
+**Chunk Creation:**
+- Only possible when geth is fully synced (external RPC working)
+- Use `python manage.py backfill_chunks --start-date YYYY-MM-DD --end-date YYYY-MM-DD`
+- Chunks are ~1-2GB for full day of Ethereum mainnet data
+
 ### Common Issues & Solutions
 1. **JWT Setup Pod Loop**: EmptyDir volumes don't share between pods
    - Solution: Delete unnecessary JWT setup jobs if Engine API already working
