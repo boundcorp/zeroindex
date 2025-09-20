@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zeroindex
+  namespace: zero
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zeroindex
+  template:
+    metadata:
+      labels:
+        app: zeroindex
+    spec:
+      imagePullSecrets:
+      - name: ghcr-secret
+      containers:
+      - name: zeroindex
+        image: ghcr.io/boundcorp/zeroindex:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        env:
+        - name: DATABASE_URL
+          value: "sqlite:///db.sqlite3"
+        - name: APP_ENV
+          value: "production"
+        - name: APP_HOSTNAME
+          value: "zero.boundcorp.net"
+        - name: DJANGO_SETTINGS_MODULE
+          value: "zeroindex.settings"
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: zeroindex-secret
+              key: django-secret-key
+              optional: true
+        command: ["python", "/app/minimal_app.py"]
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zeroindex
+  namespace: zero
+spec:
+  selector:
+    app: zeroindex
+  ports:
+  - protocol: TCP
+    port: 8000
+    targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: zeroindex
+  namespace: zero
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - zero.boundcorp.net
+    secretName: zeroindex-tls
+  rules:
+  - host: zero.boundcorp.net
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: zeroindex
+            port:
+              number: 8000

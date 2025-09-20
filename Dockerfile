@@ -61,7 +61,7 @@ RUN uv pip install --no-cache-dir -r requirements.freeze.txt
 
 # Install frontend dependencies
 RUN mkdir -p /build-frontend
-COPY frontend/package.json frontend/bun.lockb /build-frontend/
+COPY frontend/package.json frontend/bun.lock /build-frontend/
 RUN cd /build-frontend && /root/.bun/bin/bun install
 
 # Move Node.js modules to application directory
